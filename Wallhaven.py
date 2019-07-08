@@ -8,22 +8,49 @@ import os
 
 class Wallhaven:
     def __init__(self, res=(1920, 1080), ratio=(16,9)):
-        self.base_link = "https://alpha.wallhaven.cc/search?"
+        self.base_link = "https://wallhaven.cc/search?"
         # Search terms
         self.resolution = res
         self.ratio = ratio
         self.grabbing = False
+        self.query = ""
 
         self.page_queue = queue.Queue()
         self.image_queue = queue.Queue()
+        self.search_queue = queue.Queue()
+        self.urls = []
 
-    def search(self, query, pages):
-        links = []
-
+    def search(self, query, pages, threads=1):
+        self.query = query
+        # Add page numbers to queue
         for page in range(1, pages+1):
+            self.search_queue.put(page)
+
+        # Create threads and add them to a list
+        search_threads = []        
+        for i in range(threads):
+            thread = threading.Thread(target=self.download_page)
+            thread.start()
+            search_threads.append(thread)
+
+        # Wait for threads to finish
+        for thread in search_threads:
+            thread.join()
+
+        # Return urls
+        return self.urls
+
+
+    def download_page(self):
+        while True:
+            try:
+                page_number = self.search_queue.get(block=False)
+            except queue.Empty:
+                return
+
             payload = {
-                "q": query,
-                "page": str(page),
+                "q": self.query,
+                "page": str(page_number),
                 "resolutions": f"{self.resolution[0]}x{self.resolution[1]}",
                 "categories": "101",  # Categories as follows: general,anime,people
                 "purity": "100",      # Purity: sfw,nsfw,null
@@ -44,10 +71,9 @@ class Wallhaven:
             for link_list in link_elements:
                 # Empty page so no more results to fetch
                 if len(link_list) < 1:
-                    return links
+                    return
                 for link_object in link_list:
-                    links.append(link_object.get('href'))
-        return links
+                    self.urls.append(link_object.get('href'))
 
     def grab_image_link(self):
         while True:
@@ -77,7 +103,7 @@ class Wallhaven:
                     continue
 
             # Request image
-            image_link = 'https://' + image_link[2:]
+            image_link = image_link
             print(f'Downloading image: {image_link}')
             try:
                 res = requests.get(image_link, timeout=10)
